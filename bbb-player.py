@@ -258,7 +258,11 @@ Download at least one meeting first using the --download argument")
     return app
 
 
-def downloadScript(inputURL, meetingNameWanted):
+def isMeetingAlreadyDownloaded(folderPath):
+    return os.path.isfile(os.path.join(folderPath, DOWNLOADED_FULLY_FILENAME))
+
+    
+def downloadScript(inputURL, meetingNameWanted=""):
     # get meeting id from url https://regex101.com/r/UjqGeo/3
     matchesURL = re.search(r"/?(\d+\.\d+)/.*?([0-9a-f]{40}-\d{13})/?",
                            inputURL,
@@ -277,15 +281,14 @@ def downloadScript(inputURL, meetingNameWanted):
                                                 meetingId)
     logger.debug("Base url: {}".format(baseURL))
 
-    if meetingNameWanted:
-        folderPath = os.path.join(
-            SCRIPT_DIR, DOWNLOADED_MEETINGS_FOLDER, meetingNameWanted)
-    else:
-        folderPath = os.path.join(
-            SCRIPT_DIR, DOWNLOADED_MEETINGS_FOLDER, meetingId)
-    logger.debug("Folder path: {}".format(folderPath))
+    meetingName = meetingNameWanted.strip().replace(" ", "_") if len(meetingNameWanted) > 0 else meetingId
+    folderPath = os.path.join(SCRIPT_DIR, DOWNLOADED_MEETINGS_FOLDER, meetingNameWanted)
 
-    if os.path.isfile(os.path.join(folderPath, DOWNLOADED_FULLY_FILENAME)):
+    logger.info(f"Downloading meeting from: {inputURL}")
+    logger.info(f"Naming meeting as: {meetingName}")
+    logger.debug("Folder path to save to: {}".format(folderPath))
+
+    if isMeetingAlreadyDownloaded(folderPath):
         logger.info("Meeting is already downloaded.")
     else:
         logger.info(
@@ -311,19 +314,26 @@ def downloadScript(inputURL, meetingNameWanted):
             pass
 
 
+def removeSpacesFromNames(nameList):
+    names = list()
+    for name in nameList:
+        name += name.strip().replace(" ", "_")
+    return names
+
+
 if __name__ == "__main__":
 
     # Parse the command line arguments
     parser = argparse.ArgumentParser()
     # group = parser.add_mutually_exclusive_group()
     group = parser
-    group.add_argument("-d", "--download", type=str, nargs=1,
-                       help="download the BBB conference linked here")
-    group.add_argument("-n", "--name", type=str, nargs=1,
-                       help="define name of the conference (e.g. meeting1)")
+    group.add_argument("-d", "--download", type=str, nargs="*", metavar="url",
+                       help="download the BBB conference(s) from this link(s). (e.g. \"https://url1...\" [\"https://url2...\", ...])")
+    group.add_argument("-n", "--names", type=str, nargs="*", metavar="name",
+                       help="define name(s) of the conference(s). (e.g. \"meeting1\" [\"meeting2\", ...])")
     group.add_argument("-s", "--server", action="store_true",
                        help="launch a server with all available downloaded meetings listed on one page")
-    group.add_argument("-c", "--combine", type=str, nargs=1,
+    group.add_argument("-c", "--combine", type=str, nargs=1, metavar="name",
                        help="combine deskshare+audio of a BBB conference saved localy. Full id string \
                     (e.g. 70i9tyx7zbajoptzbav3ky1tuqxj3hgerup42jda-2177698461148) or \
                     the name you provided when downloading (e.g. meeting1)")
@@ -348,17 +358,25 @@ if __name__ == "__main__":
         logger.setLevel(LOGGING_LEVEL)
 
     if(args.download != None and args.server == False and args.combine == None):
-        logger.info("Download")
-        inputURL = args.download[0]
+        logger.info(f"Trying to downloading {len(args.download)} meeting(s).")
 
-        meetingNameWanted = None
-        if args.name:
-            meetingNameWanted = args.name[0].strip().replace(" ", "_")
-            logger.info(f"Naming the meeting as: {meetingNameWanted}")
+        if args.download and len(args.download) > 0:
+            if args.names and len(args.names) > 0:
+                if len(args.names) != len(args.download):
+                    logger.error("Number of names provided with --name argument should be the\n"
+                        "same as number of download URLs provided with --download. Did you use double\n"
+                        "quotes \" when calling the program with multiple URLs? example:\n "
+                        "python bbb-player.py -d \"url1\" \"url2\" -n \"name1\" \"name2\"")
 
-        downloadScript(inputURL, meetingNameWanted)
+                assert len(args.names) == len(args.download)
+                for inputURL, meetingNameWanted in zip(args.download, args.names):
+                    downloadScript(inputURL, meetingNameWanted)
 
-    elif(args.server == True and args.name == args.download == args.combine == None):
+            else:
+                for inputURL in args.download:
+                    downloadScript(inputURL)
+
+    elif(args.server == True and args.names == args.download == args.combine == None):
         app = create_app()
 
         logger.info('---------')
@@ -369,7 +387,7 @@ if __name__ == "__main__":
 
         app.run(host='0.0.0.0', port=5000)
 
-    elif(args.combine != None and args.name == args.download == None and args.server == False):
+    elif(args.combine != None and args.names == args.download == None and args.server == False):
         logger.info("Combine")
         fileIdOrName = args.combine[0]
 
